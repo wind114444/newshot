@@ -7,6 +7,7 @@
 数据流程：下载当天 SQLite → 合并新数据 → 上传回远程
 """
 
+import os
 import pytz
 import re
 import shutil
@@ -307,6 +308,36 @@ class RemoteStorageBackend(SQLiteStorageMixin, StorageBackend):
                 ContentType='application/x-sqlite3',
             )
             print(f"[远程存储] 已上传: {local_path} -> {r2_key}")
+
+            # ===== 上传 TXT =====
+            if self.enable_txt:
+                date_folder = self._format_date_folder(date)
+                txt_dir = self.temp_dir / date_folder / "txt"
+
+                if txt_dir.exists():
+                    for root, _, files in os.walk(txt_dir):
+                        for file in files:
+                            local_txt_path = Path(root) / file
+
+                            rel_path = local_txt_path.relative_to(self.temp_dir)
+                            remote_txt_key = str(rel_path).replace("\\", "/")
+
+                            try:
+                                with open(local_txt_path, 'rb') as f:
+                                    content = f.read()
+
+                                self.s3_client.put_object(
+                                    Bucket=self.bucket_name,
+                                    Key=remote_txt_key,
+                                    Body=content,
+                                    ContentLength=len(content),
+                                    ContentType='text/plain',
+                                )
+
+                                print(f"[远程存储] TXT已上传: {local_txt_path} -> {remote_txt_key}")
+
+                            except Exception as e:
+                                print(f"[远程存储] TXT上传失败: {e}")
 
             # 验证上传成功
             if self._check_object_exists(r2_key):
