@@ -309,36 +309,6 @@ class RemoteStorageBackend(SQLiteStorageMixin, StorageBackend):
             )
             print(f"[远程存储] 已上传: {local_path} -> {r2_key}")
 
-            # ===== 上传 TXT =====
-            if self.enable_txt:
-                date_folder = self._format_date_folder(date)
-                txt_dir = self.temp_dir / date_folder / "txt"
-
-                if txt_dir.exists():
-                    for root, _, files in os.walk(txt_dir):
-                        for file in files:
-                            local_txt_path = Path(root) / file
-
-                            rel_path = local_txt_path.relative_to(self.temp_dir)
-                            remote_txt_key = str(rel_path).replace("\\", "/")
-
-                            try:
-                                with open(local_txt_path, 'rb') as f:
-                                    content = f.read()
-
-                                self.s3_client.put_object(
-                                    Bucket=self.bucket_name,
-                                    Key=remote_txt_key,
-                                    Body=content,
-                                    ContentLength=len(content),
-                                    ContentType='text/plain',
-                                )
-
-                                print(f"[远程存储] TXT已上传: {local_txt_path} -> {remote_txt_key}")
-
-                            except Exception as e:
-                                print(f"[远程存储] TXT上传失败: {e}")
-
             # 验证上传成功
             if self._check_object_exists(r2_key):
                 print(f"[远程存储] 上传验证成功: {r2_key}")
@@ -350,6 +320,59 @@ class RemoteStorageBackend(SQLiteStorageMixin, StorageBackend):
         except Exception as e:
             print(f"[远程存储] 上传失败: {e}")
             return False
+
+    def _upload_txt_files(self, date: Optional[str] = None) -> bool:
+        """
+        上传 TXT 文件到远程存储
+        
+        Args:
+            date: 日期字符串
+
+        Returns:
+            是否上传成功
+        """
+        if not self.enable_txt:
+            return True
+        
+        date_folder = self._format_date_folder(date)
+        txt_dir = self.temp_dir / date_folder / "txt"
+        
+        if not txt_dir.exists():
+            print(f"[远程存储] TXT 目录不存在，跳过上传: {txt_dir}")
+            return True
+        
+        uploaded_count = 0
+        failed_count = 0
+        
+        for root, _, files in os.walk(txt_dir):
+            for file in files:
+                local_txt_path = Path(root) / file
+                rel_path = local_txt_path.relative_to(self.temp_dir)
+                remote_txt_key = str(rel_path).replace("\\", "/")
+                
+                try:
+                    with open(local_txt_path, 'rb') as f:
+                        content = f.read()
+                    
+                    self.s3_client.put_object(
+                        Bucket=self.bucket_name,
+                        Key=remote_txt_key,
+                        Body=content,
+                        ContentLength=len(content),
+                        ContentType='text/plain',
+                    )
+                    print(f"[远程存储] TXT已上传: {local_txt_path} -> {remote_txt_key}")
+                    uploaded_count += 1
+                    
+                except Exception as e:
+                    print(f"[远程存储] TXT上传失败: {e}")
+                    failed_count += 1
+        
+        if uploaded_count > 0:
+            print(f"[远程存储] TXT 上传完成: {uploaded_count} 个成功" + 
+                  (f", {failed_count} 个失败" if failed_count > 0 else ""))
+        
+        return failed_count == 0
 
     def _get_connection(self, date: Optional[str] = None, db_type: str = "news") -> sqlite3.Connection:
         """
@@ -422,10 +445,21 @@ class RemoteStorageBackend(SQLiteStorageMixin, StorageBackend):
         log_parts.append(f"(去重后总计: {final_count} 条)")
         print("，".join(log_parts))
 
+        # ===== 先保存 TXT 快照（关键修复：在 SQLite 上传之前创建）=====
+        if self.enable_txt:
+            self.save_txt_snapshot(data)
+
         # 上传到远程存储
-        if self._upload_sqlite(data.date):
+        sqlite_success = self._upload_sqlite(data.date)
+        
+        # 上传 TXT 文件（关键修复：单独上传 TXT）
+        txt_success = True
+        if self.enable_txt:
+            txt_success = self._upload_txt_files(data.date)
+        
+        if sqlite_success:
             print(f"[远程存储] 数据已同步到远程存储")
-            return True
+            return txt_success
         else:
             print(f"[远程存储] 上传远程存储失败")
             return False
