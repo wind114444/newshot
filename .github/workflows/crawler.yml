@@ -51,6 +51,8 @@ jobs:
   crawl:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      TZ: "Asia/Shanghai" # 👉 改动1：设置全局时区为北京时间
 
     steps:
       - name: Checkout repository
@@ -62,6 +64,7 @@ jobs:
       - name: Check Expiration
         env:
           GH_TOKEN: ${{ github.token }}
+          TZ: "UTC" # 👉 改动2：试用期计算必须用UTC，防止算错天数
         run: |
           WORKFLOW_FILE="crawler.yml"
           API_URL="repos/${{ github.repository }}/actions/workflows/$WORKFLOW_FILE/runs"
