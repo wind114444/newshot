@@ -335,7 +335,8 @@ class RemoteStorageBackend(SQLiteStorageMixin, StorageBackend):
             return True
         
         date_folder = self._format_date_folder(date)
-        txt_dir = self.temp_dir / date_folder / "txt"
+        # 修改：去掉 txt 子目录，直接扫描日期文件夹下的 .txt 文件
+        txt_dir = self.temp_dir / date_folder
         
         if not txt_dir.exists():
             print(f"[远程存储] TXT 目录不存在，跳过上传: {txt_dir}")
@@ -344,29 +345,32 @@ class RemoteStorageBackend(SQLiteStorageMixin, StorageBackend):
         uploaded_count = 0
         failed_count = 0
         
-        for root, _, files in os.walk(txt_dir):
-            for file in files:
-                local_txt_path = Path(root) / file
-                rel_path = local_txt_path.relative_to(self.temp_dir)
-                remote_txt_key = str(rel_path).replace("\\", "/")
+        # 修改：直接遍历日期文件夹，筛选 .txt 文件
+        for file in txt_dir.iterdir():
+            if not file.is_file() or not file.suffix == '.txt':
+                continue
                 
-                try:
-                    with open(local_txt_path, 'rb') as f:
-                        content = f.read()
-                    
-                    self.s3_client.put_object(
-                        Bucket=self.bucket_name,
-                        Key=remote_txt_key,
-                        Body=content,
-                        ContentLength=len(content),
-                        ContentType='text/plain',
-                    )
-                    print(f"[远程存储] TXT已上传: {local_txt_path} -> {remote_txt_key}")
-                    uploaded_count += 1
-                    
-                except Exception as e:
-                    print(f"[远程存储] TXT上传失败: {e}")
-                    failed_count += 1
+            local_txt_path = file
+            rel_path = local_txt_path.relative_to(self.temp_dir)
+            remote_txt_key = str(rel_path).replace("\\", "/")
+            
+            try:
+                with open(local_txt_path, 'rb') as f:
+                    content = f.read()
+                
+                self.s3_client.put_object(
+                    Bucket=self.bucket_name,
+                    Key=remote_txt_key,
+                    Body=content,
+                    ContentLength=len(content),
+                    ContentType='text/plain',
+                )
+                print(f"[远程存储] TXT已上传: {local_txt_path} -> {remote_txt_key}")
+                uploaded_count += 1
+                
+            except Exception as e:
+                print(f"[远程存储] TXT上传失败: {e}")
+                failed_count += 1
         
         if uploaded_count > 0:
             print(f"[远程存储] TXT 上传完成: {uploaded_count} 个成功" + 
@@ -644,7 +648,8 @@ class RemoteStorageBackend(SQLiteStorageMixin, StorageBackend):
         # 如果启用，保存到本地临时目录
         try:
             date_folder = self._format_date_folder(data.date)
-            txt_dir = self.temp_dir / date_folder / "txt"
+            # 修改：去掉 txt 子目录，直接放在日期文件夹下
+            txt_dir = self.temp_dir / date_folder
             txt_dir.mkdir(parents=True, exist_ok=True)
 
             file_path = txt_dir / f"{data.crawl_time}.txt"
