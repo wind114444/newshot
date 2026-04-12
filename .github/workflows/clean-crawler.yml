@@ -9,6 +9,9 @@ name: Check In
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 0 */5 * *'
+
 
 jobs:
   del_runs:
